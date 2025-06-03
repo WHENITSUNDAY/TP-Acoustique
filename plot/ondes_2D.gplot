@@ -1,21 +1,10 @@
 reset
 set terminal pngcairo size 1800,1600 font "Helvetica,28" enhanced
-set output
 
-t_values = ""
-do for [i=0:40] {
-    t_values = t_values.sprintf(" %.1f", i*5)
-}
-
-schema_values = "EE EI CK"
-schema = 2
-ci = 1
-cl = 2
-Lx = 0.2
-Ly = 0.2
-nx = 128
-ny = 128
-
+Lx = 10.00
+Ly = 6.00
+nx = 100
+ny = 60
 
 set view map
 set size ratio -1
@@ -30,22 +19,20 @@ set ylabel "y (m)" font "Helvetica Bold,24" offset 1,0
 
 set palette defined (0 "#0d0887", 1 "#46039f", 2 "#7201a8", 3 "#9c179e", 4 "#bd3786", 5 "#d8576b", 6 "#ed7953", 7 "#fb9f3a", 8 "#fdca26", 9 "#f0f921")
 
-
-set cbrange[300:1000]
-set yrange[0:0.20]
-set xrange[0:0.20]
-
 set cblabel "T_{i,j} (K)" font "Helvetica Bold,24"
-do for [i=1:words(t_values)] {
-    t = word(t_values, i)
-    fichier = sprintf("data/2D/temp_%s_Lx%.1f_Ly%.1f_bois%d_tn%s_nx%d.dat", word(schema_values, schema), Lx, Ly, ci, t, nx)
+set cbrange [-1000:1000]
+extract_time(filename) = system(sprintf("echo '%s' | sed 's/.*tn_//;s/.dat//'", filename))
 
-    set title sprintf("Température 2D - Schéma %s, t = %s s", word(schema_values, schema), t) font "Helvetica Bold,24"
+system("[ -d images ] || mkdir images")
 
-    set output sprintf("images/2D/temp_%02d.png", i)
+filelist = system("ls data/P_Lx_10.00_Ly_6.00_Nx_100_Ny_60_tn_*.dat")
 
-    plot fichier using 1:2:3 with image notitle
+do for [file in filelist] {
+    time_str = extract_time(file)
+    time = real(time_str)
+    
+    set title sprintf("Onde acoustique 2D, t = %s s", time_str)
+    set output sprintf("images/P_%s.png", time_str)
+
+    plot file using 1:2:3 with image notitle
 }
-
-# !convert -delay 20 -loop 0 images/2D/temp_*.png temp_2D.gif
-unset output
