@@ -1,37 +1,37 @@
 reset
-set terminal pngcairo size 1800,1600 font "Helvetica,28" enhanced
+set terminal pngcairo size 1800,1200 font "Helvetica,20" enhanced
 
-Lx = 10.00
-Ly = 6.00
-nx = 100
-ny = 60
+Lx = 15.00
+Ly = 10.00
+set autoscale noextend
+
+set offsets 0, 0, 0, 0
 
 set view map
 set size ratio -1
 
 unset border
-set tics scale 1.5
+set tics scale 0.5
 set xtics font "Helvetica,20" offset 0,0.5
 set ytics font "Helvetica,20" offset 0.5,0
 
 set xlabel "x (m)" font "Helvetica Bold,24" offset 0,1
 set ylabel "y (m)" font "Helvetica Bold,24" offset 1,0
 
-set palette defined (0 "#0d0887", 1 "#46039f", 2 "#7201a8", 3 "#9c179e", 4 "#bd3786", 5 "#d8576b", 6 "#ed7953", 7 "#fb9f3a", 8 "#fdca26", 9 "#f0f921")
-
-set cblabel "T_{i,j} (K)" font "Helvetica Bold,24"
-set cbrange [-1000:1000]
+set palette defined (-1.0 "#050596", -0.7 "#3d3dc9", -0.4 "#7a7aff", -0.1 "#b5b5ff", 0 "#e8e1c5", 0.3 "#ffb3a6", 0.6 "#ff6b52", 1.0 "#c80000")
+set cblabel "Pression acoustique (Pa)" font "Helvetica Bold,20"
+set cbrange [-600:600]
 extract_time(filename) = system(sprintf("echo '%s' | sed 's/.*tn_//;s/.dat//'", filename))
 
 system("[ -d images ] || mkdir images")
 
-filelist = system("ls data/P_Lx_10.00_Ly_6.00_Nx_100_Ny_60_tn_*.dat")
+filelist = system("ls data/P_Lx_15.00_Ly_10.00_Nx_150_Ny_100_tn_*.dat")  
 
 do for [file in filelist] {
     time_str = extract_time(file)
     time = real(time_str)
-    
-    set title sprintf("Onde acoustique 2D, t = %s s", time_str)
+
+    set title sprintf("Onde acoustique 2D, t = %s s", time_str) font "Helvetica,26"
     set output sprintf("images/P_%s.png", time_str)
 
     plot file using 1:2:3 with image notitle

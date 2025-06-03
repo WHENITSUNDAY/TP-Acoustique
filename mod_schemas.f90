@@ -7,14 +7,17 @@ module mod_schemas
 
     contains
 
-        subroutine solution_numerique_2D(Nx, Ny, tmax, Lx, Ly, f0, u0, frames)
+        subroutine solution_numerique_2D(Nx, Ny, tmax, Lx, Ly, f0, u0, cfl, frames)
             integer, intent(in)                     :: Nx, Ny, frames
-            real(PR), intent(in)                    :: tmax, Lx, Ly, f0, u0
+            real(PR), intent(in)                    :: tmax, Lx, Ly, f0, u0, cfl
             real(PR), dimension(0:Nx+1,0:Ny+1)      :: Pn, Pnp1, Pnm1, G
-            real(PR)                                :: dx, dy, dt, tn, P0, y
-            integer                                 :: ct, i, j, Ny1, Ny2
+            real(PR)                                :: dx, dy, dt, tn, P0, y, t1, t2, damping_coeff
+            integer                                 :: ct, i, j, Ny1, Ny2, sponge_width
             character(20)                           :: chtn, chNx, chNy, chLx, chLy
             character(len=200)                      :: fichier
+
+
+            call cpu_time(t1)
 
             write(chNx,'(1I4)') Nx
             write(chNy,'(1I4)') Ny
@@ -28,9 +31,10 @@ module mod_schemas
             tn = 0._PR
             ct = 0
 
+            sponge_width = 10
             Ny1 = int(Ny/2 - Ny*(d/Ly)/2)  
             Ny2 = int(Ny/2 + Ny*(d/Ly)/2) 
-            dt = 0.5_PR * min(dx,dy)/(c_eau*sqrt(2._PR))
+            dt = cfl * min(dx,dy)/(c_eau*sqrt(2._PR))
 
             print *, "dt :", dt
             print *, tmax
@@ -40,35 +44,57 @@ module mod_schemas
 
             P0 = u0 * (2*PI*f0) * rho_eau * c_eau
             do while (tn < tmax)
-
                 G = calcul_laplacien(Pn, dx, dy, Nx, Ny)
-
-                
-                !Condition de Dirichlet à gauche
-                do j = 1, Ny
-                    y = j*dy - Ly/2._PR
-                    Pnp1(0,j) = P0 * cos(2._PR*PI*f0*tn) * exp(-(y/(Ly/10._PR))**2)
+        
+                ! Émetteur à gauche (Dirichlet)
+                if (tn < 1._PR/f0) then 
+                do j = Ny1, Ny2
+                    y = j*dy - Ly/2.0_PR
+                    Pnp1(0,j) = P0 * cos(2._PR*PI*f0*tn) !* exp(-(y/Ly)**2)
                 end do
 
-                !Schéma numérique
+                else
+                    Pnp1(0,Ny1:Ny2) = 0._PR
+                end if
+                ! Schéma numérique central
                 do j = 1, Ny
                     do i = 1, Nx
-                        Pnp1(i,j) = 2._PR*Pn(i,j) - Pnm1(i,j) &
-                            + c_eau**2 * dt**2 * G(i,j)
+                        Pnp1(i,j) = 2._PR*Pn(i,j) - Pnm1(i,j) + c_eau**2 * dt**2 * G(i,j)
                     end do
                 end do
-                !CL à gauche
-                Pnp1(0,Ny2:Ny+1) = Pn(1,Ny2:Ny+1)
-                Pnp1(0,0:Ny1) = Pn(1,0:Ny1)
 
-                !CL en bas/haut 
-                Pnp1(:,Ny+1) = Pnp1(:,Ny)
-                Pnp1(:,0) = Pnp1(:,1) 
-
-                !CL à droite
-                Pnp1(Nx+1,Ny2:Ny+1) = Pnp1(Nx,Ny2:Ny+1)
-                Pnp1(Nx+1,0:Ny1) = Pnp1(Nx,0:Ny1)
+                ! Gauche (hors émetteur)
+                do j = 0, Ny+1
+                    if (j < Ny1 .or. j > Ny2) then
+                        do i = 1, sponge_width
+                            damping_coeff = (sponge_width - i)/real(sponge_width) * 0.1_PR
+                            Pnp1(i,j) = Pnp1(i,j) * (1._PR - damping_coeff)
+                        end do
+                    end if
+                end do
+        
+                ! Droite
+                do j = 0, Ny+1
+                    if (j < Ny1 .or. j > Ny2) then
+                    do i = Nx - sponge_width + 1, Nx
+                        damping_coeff = (i - (Nx - sponge_width))/real(sponge_width) * 0.1_PR
+                        Pnp1(i,j) = Pnp1(i,j) * (1._PR - damping_coeff)
+                    end do
+                    end if
+                end do
+                
                 Pnp1(Nx+1,Ny1:Ny2) = 0._PR
+                ! Haut/Bas
+                do i = 0, Nx+1
+                    do j = 1, sponge_width  ! Bas
+                        damping_coeff = (sponge_width - j)/real(sponge_width) * 0.1_PR
+                        Pnp1(i,j) = Pnp1(i,j) * (1._PR - damping_coeff)
+                    end do
+                    do j = Ny - sponge_width + 1, Ny  ! Haut
+                        damping_coeff = (j - (Ny - sponge_width))/real(sponge_width) * 0.1_PR
+                        Pnp1(i,j) = Pnp1(i,j) * (1._PR - damping_coeff)
+                    end do
+                end do
                 
                 Pnm1 = Pn
                 Pn = Pnp1
@@ -96,6 +122,8 @@ module mod_schemas
                 tn = tn + dt
             end do
 
+            call cpu_time(t2)
+            print *, "Temps de calcul : ", t2 - t1, " s"
             close(100)
         end subroutine solution_numerique_2D
 
