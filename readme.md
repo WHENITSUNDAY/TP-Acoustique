@@ -7,6 +7,6 @@ En parallèle, on modélise notamment le signal électrique reçu par le récept
 ## Résultats de la simulation
 
 ### Simulation eau seule
-[![Voir la vidéo](https://img.shields.io/badge/▶_Simulation_eau-0096FF?style=for-the-badge&logoColor=white)](onde_acoustique_eau.mp4)
+https://github.com/user-attachments/assets/fada7ccb-46f0-4fc6-b9bb-07d515956a92
 ### Simulation eau + aluminium
-[![Voir la vidéo](https://img.shields.io/badge/▶_Simulation_alu_+_eau-FF5500?style=for-the-badge&logoColor=white)](onde_acoustique_eau_alu.mp4)
+https://github.com/user-attachments/assets/29d6320b-4515-4922-b7f8-61b39c592c74
