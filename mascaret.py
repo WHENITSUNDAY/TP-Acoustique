@@ -3,41 +3,53 @@ import matplotlib.pyplot as plt
 from matplotlib.animation import FuncAnimation
 from numba import njit
 
-Lx = 1e5
-h_sea = 10
-h_riv = 3
-h_static = h_riv
+L = 2e4
+h_estuary = 10
+h_river = 3
+w_river = 200
+w_estuary = 2000
+Q_river = 800.0 
+
 tide_amplitude = 3.0
 tide_period = 12 * 3600 + 25 * 60
-Q_river = 1000.0
-river_width = 200.0
+
+
 n_manning = 0.01
 
-nx = 200
-dx = Lx / nx
-x = np.linspace(0, Lx, nx)
+nx = 500
+dx = L / nx
+x = np.linspace(0, L, nx)
 
 g = 9.81
-cfl = 0.9
-dt = cfl * dx / (np.sqrt(g * h_sea + tide_amplitude) + 10)
+cfl = 0.2
+dt = cfl * dx / (np.sqrt(g * h_estuary + tide_amplitude))
 tmax = 2 * tide_period
 t = 0.0
 
-@njit
-def bathymetry(x):
-    zb = (h_sea - h_riv) * (x / Lx)
-    zb += 0.5 * np.exp(-((x - 0.7 * Lx) / (0.1 * Lx)) ** 2)
-    return -zb
 
-zb = bathymetry(x)
+w = w_river + (w_estuary - w_river) * np.exp(-4 * x / L)
+zb = -h_river + (h_river - h_estuary) * (1 - x / L)**2
+fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(10, 8))
 
-h = h_static * np.ones(nx)
-q = np.zeros(nx)
+# ax1.plot(x/1000, w, 'b-', linewidth=2)
+# ax1.set_ylabel("Largeur (m)")
+# ax1.set_title("Évolution de la largeur de la Garonne (estuaire → Podensac)")
+# ax1.grid(True)
+
+# ax2.plot(x/1000, zb, 'r-', linewidth=2)
+# ax2.set_ylabel("Profondeur (m)")
+# ax2.set_xlabel("Distance (km)")
+# ax2.set_title("Évolution de la profondeur")
+# ax2.grid(True)
+
+# plt.tight_layout()
+# plt.show()
+
 
 
 fig, ax = plt.subplots(figsize=(12, 5))
-ax.set_xlim(0, Lx / 1000)
-ax.set_ylim(np.min(zb)-1, h_static + 2*tide_amplitude)
+ax.set_xlim(0, L / 1000)
+ax.set_ylim(np.min(zb)-1, 2*tide_amplitude)
 ax.set_xlabel("Distance (km)")
 ax.set_ylabel("Elevation (m)")
 ax.grid(True, alpha=0.3)
@@ -45,42 +57,17 @@ ax.grid(True, alpha=0.3)
 line_water, = ax.plot(x / 1000, zb + h, 'b-', lw=2, label="Surface")
 line_bed, = ax.plot(x / 1000, zb, 'k-', lw=1.5, label="Bed")
 ax.legend()
-title = ax.set_title("t = 0 h")
-
-@njit
-def step_lax_friedrichs(h, q, zb, t, dx, dt):
-    nx = len(h)
-    h_new = np.copy(h)
-    q_new = np.copy(q)
-
-    F1 = q
-    F2 = q**2 / h + 0.5 * g * h**2
-
-    for i in range(1, nx - 1):
-        h_new[i] = 0.5 * (h[i+1] + h[i-1]) - dt/(2*dx) * (F1[i+1] - F1[i-1])
-        q_new[i] = 0.5 * (q[i+1] + q[i-1]) - dt/(2*dx) * (F2[i+1] - F2[i-1])
-        dzb = (zb[i+1] - zb[i-1]) / (2*dx)
-        q_new[i] -= dt * g * h[i] * dzb
-
-        h_f = max(h[i], 0.1)
-        q_new[i] -= dt * g * n_manning**2 * q[i] * abs(q[i]) / h_f**(10/3)
-
-    eta_tide = tide_amplitude * np.sin(2 * np.pi * t / tide_period)
-    h_new[-1] = h_static + eta_tide
-    q_new[-1] = q_new[-2]
-    q_new[0] = q_new[1]
-    h_new[0] = h_new[1]
-    return h_new, q_new
+ax.set_title("t = 0 h")
 
 def update(frame):
-    global h, q, t
-    for _ in range(5):
-        h, q = step_lax_friedrichs(h, q, zb, t, dx, dt)
-        t += dt
+    global h, u, h_new, u_new, t
+
+    
+    t += dt
 
     line_water.set_ydata(h)
-    title.set_text(f"Garonne Tidal Bore - t = {t/3600:.2f} h")
-    return line_water, title
+    ax.set_title(f"Garonne Tidal Bore - t = {t/3600:.2f} h")
+    return line_water
 
-anim = FuncAnimation(fig, update, frames=int(tmax / dt / 5), interval=50, blit=True)
+anim = FuncAnimation(fig, update, frames=int(tmax / (dt*5) ), interval=50, blit=True)
 plt.show()

@@ -24,25 +24,18 @@ L'utilisation d'un filtre passe-bas est primordiale pour lisser les artefacts de
 start = time.time()
 
 # Paramètres physiques
-has_aluminium = False # True si on veut ajouter la plaque d'alu, False sinon
-has_low_pass_filter = True # True si on veut ajouter un filtre passe-bas, False sinon
-has_pml = True # True si on veut ajouter des conditions aux limites absorbantes de type PML, False sinon
-alu_distance = 0.03 # Distance entre l'émetteur et la plaque d'aluminium (m)
+has_aluminium = True # True si on veut ajouter la plaque d'alu, False sinon
+
 Lx, Ly = 0.08, 0.08 # Dimensions du domaine (m)
 piezo_diameter = 0.025 # Diamètre des dispositifs piézoélectriques (m)
 alu_thickness = 0.0083 # Épaisseur de la plaque d'aluminium (m)
 alu_width = 0.067 # Largeur de la plaque d'aluminium (m)
+alu_distance = 0.03 # Distance entre l'émetteur et la plaque d'aluminium (m)
 c_w = 1500 # Vitesse du son dans l'eau (m/s) (ou dans un fluide en général)
 c_a = 6000 # Vitesse du son (longitudinal) dans l'aluminium (m/s) (on néglige le cisaillement) (ou dans un solide en général)
 
-assert alu_distance + alu_thickness < Lx, "La plaque d'aluminium doit être entièrement dans le domaine !"
-assert piezo_diameter < Ly, "Le diamètre des dispositifs piézoélectriques doit être inférieur à la hauteur du domaine !"
+
 f_source = 2e6 # Fréquence de la source (Hz), 2MHz -> Ultrasons.
-
-rho_w = 1000 
-rho_a = 2700
-
-# Paramètres numériques
 t = 0
 tmax = 3e-4 # Durée de la simulation (s)
 
@@ -81,7 +74,11 @@ if has_aluminium:
     alu_y1 = alu_y0 + int(alu_width / Ly * ny)
     celerity_matrix[alu_x0:alu_x1, alu_y0:alu_y1] = c_a**2
 
+has_low_pass_filter = True # True si on veut ajouter un filtre passe-bas, False sinon
+has_pml = True # True si on veut ajouter des conditions aux limites absorbantes de type PML, False sinon
+
 sigma = np.zeros((nx, ny), dtype=np.float32)
+
 # Paramètres de la PML (à ne pas toucher)
 if has_pml:
     pml_width = nx // 5
@@ -105,6 +102,8 @@ if has_pml:
     sigma[:, j] += sigma_max * ((pml_width - j) / pml_width) ** 3
     sigma[:, ny-1-j] += sigma_max * ((pml_width - j) / pml_width) ** 3
 
+assert alu_distance + alu_thickness < Lx, "La plaque d'aluminium doit être entièrement dans le domaine !"
+assert piezo_diameter < Ly, "Le diamètre des dispositifs piézoélectriques doit être inférieur à la hauteur du domaine !"
 
 @njit(fastmath=True, cache=True)
 def compute_wave_propagation(nframes, nx, ny, p, p_prev, p_next, celerity_matrix, sigma, alpha, dt, dt2, inv_dx2, inv_dy2, piezo_bottom, piezo_width, f_source):
