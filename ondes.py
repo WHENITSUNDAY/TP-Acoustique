@@ -41,7 +41,7 @@ rho_a = 2700
 # Paramètres numériques
 t = 0
 tmax = 1.8e-4
-nx, ny = 128, 128
+nx, ny = int(64*(Lx/Ly)), 64
 dx = Lx / nx
 dy = Ly / ny
 dt = 0.95 * dx / (c_a * np.sqrt(2))  # CFL
@@ -211,12 +211,13 @@ fps = 100
 frame_step = 1
 
 anim = FuncAnimation(fig, update, frames=nframes, interval=1000/fps, blit=False)
-writer = FFMpegWriter(fps=fps, bitrate=1800)
+plt.show()
+# writer = FFMpegWriter(fps=fps, bitrate=1800)
 
-if has_aluminium:
-    anim.save('onde_acoustique_eau_alu.mp4', writer=writer, dpi = 200)
-else:
-    anim.save('onde_acoustique_eau.mp4', writer=writer, dpi = 200)
+# if has_aluminium:
+#     anim.save('onde_acoustique_eau_alu.mp4', writer=writer, dpi = 200)
+# else:
+#     anim.save('onde_acoustique_eau.mp4', writer=writer, dpi = 200)
 
 print("Avec Numba:", time.time() - start)
 plt.close()
