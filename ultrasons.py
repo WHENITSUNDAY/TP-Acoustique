@@ -25,28 +25,34 @@ start = time.time()
 
 # Paramètres physiques
 has_aluminium = True # True si on veut ajouter la plaque d'alu, False sinon
-
+aluminium_shape = 2 # 1 pour une plaque rectangulaire, 2 pour un cercle
 Lx, Ly = 0.08, 0.08 # Dimensions du domaine (m)
 piezo_diameter = 0.025 # Diamètre des dispositifs piézoélectriques (m)
-alu_thickness = 0.0083 # Épaisseur de la plaque d'aluminium (m)
-alu_width = 0.067 # Largeur de la plaque d'aluminium (m)
-alu_distance = 0.03 # Distance entre l'émetteur et la plaque d'aluminium (m)
-c_w = 1500 # Vitesse du son dans l'eau (m/s) (ou dans un fluide en général)
-c_a = 6000 # Vitesse du son (longitudinal) dans l'aluminium (m/s) (on néglige le cisaillement) (ou dans un solide en général)
+
+if aluminium_shape == 1:
+    alu_distance = 0.03 # Distance entre l'émetteur et la plaque d'aluminium (m)
+    alu_thickness = 0.0083 # Épaisseur de la plaque d'aluminium (m)
+    alu_width = 0.067 # Largeur de la plaque d'aluminium (m)
+
+if aluminium_shape == 2:
+    alu_radius = 0.039 # Rayon de la plaque d'aluminium (m) (si aluminium_shape == 2)
+    alu_center = (Lx/2, Ly / 2) # Centre du cercle d'aluminium (m)
 
 
 f_source = 2e6 # Fréquence de la source (Hz), 2MHz -> Ultrasons.
-t = 0
 tmax = 3e-4 # Durée de la simulation (s)
+
+c_w = 1500 # Vitesse du son dans l'eau (m/s) (ou dans un fluide en général)
+c_a = 6000 # Vitesse du son (longitudinal) dans l'aluminium (m/s) (on néglige le cisaillement) (ou dans un solide en général)
 
 c_max = c_w if not has_aluminium else c_a
 
-nx, ny = int(128*(Lx/Ly)), 128
+nx, ny = int(256*(Lx/Ly)), 256
 dx = Lx / nx
 dy = Ly / ny
 dt = 0.8 * dx / (c_max * np.sqrt(2))  # CFL
-alpha = 0.008 * dt / dx**2 
-print (alpha)
+alpha = 0.006 * dt / dx**2 
+
 #Optimisation : on précalcule les coefficients pour éviter de les recalculer à chaque itération
 inv_dx2 = 1.0 / dx**2
 inv_dy2 = 1.0 / dy**2
@@ -66,13 +72,23 @@ p_prev = np.zeros((nx, ny), dtype=np.float32)
 p_next = np.zeros((nx, ny), dtype=np.float32)
 celerity_matrix = np.full((nx, ny), c_w**2, dtype=np.float32)  # Par défaut, on est uniquement dans l'eau...
 
+
 #Si on ajoute l'aluminium, on modifie la matrice de célérité aux points où l'aluminium est présent.
 if has_aluminium:
-    alu_x0 = int(alu_distance / Lx * nx)
-    alu_y0 = int((Ly - alu_width) / 2 / Ly * ny)
-    alu_x1 = alu_x0 + int(alu_thickness / Lx * nx)
-    alu_y1 = alu_y0 + int(alu_width / Ly * ny)
-    celerity_matrix[alu_x0:alu_x1, alu_y0:alu_y1] = c_a**2
+
+    if aluminium_shape == 1:
+        alu_x0 = int(alu_distance / Lx * nx)
+        alu_y0 = int((Ly - alu_width) / 2 / Ly * ny)
+        alu_x1 = alu_x0 + int(alu_thickness / Lx * nx)
+        alu_y1 = alu_y0 + int(alu_width / Ly * ny)
+        celerity_matrix[alu_x0:alu_x1, alu_y0:alu_y1] = c_a**2
+    if aluminium_shape == 2:
+        alu_radius_pixels = int(alu_radius / Lx * nx)
+        for i in range(nx):
+            for j in range(ny):
+                if (i - alu_center[0] * nx / Lx)**2 + (j - alu_center[1] * ny / Ly)**2 <= alu_radius_pixels**2:
+                    celerity_matrix[i, j] = c_a**2
+
 
 has_low_pass_filter = True # True si on veut ajouter un filtre passe-bas, False sinon
 has_pml = True # True si on veut ajouter des conditions aux limites absorbantes de type PML, False sinon
@@ -84,7 +100,6 @@ if has_pml:
     pml_width = nx // 5
     sigma_max = 0.2 * c_w / dx
 
-    
 
     i = np.arange(pml_width)
     j_top = np.arange(0, piezo_bottom)
@@ -99,16 +114,43 @@ if has_pml:
         sigma[np.ix_(nx-1-i, j_bot)] = sigma_max * ((pml_width - i)[:, None] / pml_width) * ((j_bot[None, :] - (piezo_bottom + piezo_width - 1)) / (ny - (piezo_bottom + piezo_width)))
 
     j = np.arange(pml_width)
-    sigma[:, j] += sigma_max * ((pml_width - j) / pml_width) ** 3
-    sigma[:, ny-1-j] += sigma_max * ((pml_width - j) / pml_width) ** 3
+    j_top = ny - 1 - j
 
-assert alu_distance + alu_thickness < Lx, "La plaque d'aluminium doit être entièrement dans le domaine !"
+    sigma_bot = sigma_max * ((pml_width - j) / pml_width)**3
+    sigma_top = sigma_max * ((pml_width - j) / pml_width)**3
+
+    sigma[:, j] = np.maximum(sigma[:, j], sigma_bot[None, :])
+    sigma[:, j_top] = np.maximum(sigma[:, j_top], sigma_top[None, :])
+if aluminium_shape == 1:
+    assert alu_distance + alu_thickness < Lx, "La plaque d'aluminium doit être entièrement dans le domaine !"
+else :
+    assert alu_radius < Lx / 2, "Le rayon de la plaque d'aluminium doit être inférieur à la moitié de la largeur du domaine !"
+
 assert piezo_diameter < Ly, "Le diamètre des dispositifs piézoélectriques doit être inférieur à la hauteur du domaine !"
+
+# fig, axs = plt.subplots(1, 2, figsize=(12, 6))
+
+# # Matrice de célérité
+# axs[0].imshow(celerity_matrix.T, cmap='viridis', extent=[0, Lx, 0, Ly], origin='lower', aspect='auto')
+# axs[0].set_title('Matrice de célérité initiale (Eau)')
+# axs[0].set_xlabel('x')
+# axs[0].set_ylabel('y (m)')
+# plt.colorbar(axs[0].imshow(celerity_matrix.T, cmap='viridis', extent=[0, Lx, 0, Ly], origin='lower', aspect='auto'), ax=axs[0], label='Célérité (m/s)')
+
+# # Matrice d'absorption
+# axs[1].imshow(sigma.T, cmap='viridis', extent=[0, Lx, 0, Ly], origin='lower', aspect='auto')
+# axs[1].set_title('Matrice d\'absorption (Sigma)')
+# axs[1].set_xlabel('x (m)')
+# plt.colorbar(axs[1].imshow(sigma.T, cmap='viridis', extent=[0, Lx, 0, Ly], origin='lower', aspect='auto'), ax=axs[1], label='Absorption (1/s)')
+
+# plt.tight_layout()
+# plt.show()
 
 @njit(fastmath=True, cache=True)
 def compute_wave_propagation(nframes, nx, ny, p, p_prev, p_next, celerity_matrix, sigma, alpha, dt, dt2, inv_dx2, inv_dy2, piezo_bottom, piezo_width, f_source):
     all_p = np.zeros((nframes, nx, ny), dtype=np.float32)
     all_signal = np.zeros(nframes, dtype=np.float32)
+    all_time = np.zeros(nframes, dtype=np.float32)
     t = 0.0
     for frame in range(nframes):
         pulse_duration = 3 / f_source
@@ -160,23 +202,23 @@ def compute_wave_propagation(nframes, nx, ny, p, p_prev, p_next, celerity_matrix
         received = np.mean(p_next[-2, piezo_bottom:piezo_bottom + piezo_width])
         all_p[frame, :, :] = p_next
         all_signal[frame] = received
-
+        all_time[frame] = t
         tmp = p_prev
         p_prev = p
         p = p_next
         p_next = tmp
         t += dt
 
-    return all_p, all_signal
+    return all_p, all_signal, all_time
 
 print("Init:", time.time() - start)
 
-all_p, all_signal = compute_wave_propagation(
+all_p, all_signal, all_time = compute_wave_propagation(
     nframes, nx, ny, p, p_prev, p_next, celerity_matrix, sigma, alpha, dt, dt2, inv_dx2, inv_dy2,
     piezo_bottom, piezo_width, f_source
 )
 
-
+all_signal = all_signal / np.max(np.abs(all_signal))  # Normalisation du signal
 print("Simulation complète:", time.time() - start)
 fig = plt.figure(figsize=(8, 8))
 gs = fig.add_gridspec(2, 1, height_ratios=[5, 1], width_ratios=[1], hspace=0.2, top=0.92, bottom=0.08, left=0.15, right=0.98)
@@ -189,7 +231,10 @@ ax1.set_ylabel('y (m)')
 ax1.set_title('Propagation d\'ondes acoustiques avec PML')
 
 if has_aluminium:
-    alu_patch = plt.Rectangle((alu_x0*dx, alu_y0*dy), alu_thickness, alu_width, fill=False, color='black', label='Plaque d\'Aluminium')
+    if aluminium_shape == 1:
+        alu_patch = plt.Rectangle((alu_x0*dx, alu_y0*dy), alu_thickness, alu_width, fill=False, color='black', label='Plaque d\'Aluminium')
+    if aluminium_shape == 2:
+        alu_patch = plt.Circle((alu_center[0], alu_center[1]), alu_radius, fill=False, color='black', label='Boule d\'Aluminium')
     ax1.add_patch(alu_patch)
     
 emitter = plt.Line2D([0, 0], [piezo_bottom*dy, (piezo_bottom + piezo_width)*dy], color="#FFDD6D", linewidth=6, label='Émetteur')
@@ -200,7 +245,7 @@ ax1.legend(loc='upper right')
 
 ax2 = fig.add_subplot(gs[1])
 ax2.set_xlim(0, tmax*1e6)
-all_signal = all_signal / np.max(np.abs(all_signal))  # Normalisation du signal
+
 ax2.set_ylim(1.2*np.min(all_signal), 1.2*np.max(all_signal))
 ax2.set_xlabel('Temps (µs)')
 ax2.set_ylabel('Signal reçu (normalisé)')
@@ -221,6 +266,7 @@ def update(frame):
     im.set_data(data / vmax)
     im.set_clim(-1, 1) 
     line.set_data(time_points[:frame+1], all_signal[:frame+1])
+    ax1.set_title(f'Propagation d\'ondes acoustiques avec PML\nTemps : {all_time[frame]*1e6:.2f} µs')  # Affichage du temps
     return im, line
 
 frames_step = 10
@@ -228,6 +274,7 @@ frames_to_show = np.arange(0, nframes, frames_step)
 anim = FuncAnimation(fig, update, frames=frames_to_show, init_func=init, interval=50, blit=False, repeat=False)
 
 plt.show()
+plt.close(fig)
 # writer = FFMpegWriter(fps=int(len(frames_to_show)/20), bitrate=1800)
 # if has_aluminium:
 #     anim.save('onde_acoustique_eau_alu_parallel.mp4', writer=writer, dpi=100)
