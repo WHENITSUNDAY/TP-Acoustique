@@ -3,6 +3,9 @@ import matplotlib.pyplot as plt
 from matplotlib.animation import FuncAnimation, FFMpegWriter
 import time
 from numba import njit, prange
+from matplotlib.colors import ListedColormap
+from matplotlib.patches import Polygon, RegularPolygon
+from matplotlib.path import Path
 """Ce code a pour but de simuler la propagation d'ondes acoustiques dans un milieu bidimensionnel entre deux dispositifs piézoélectriques, l'un émetteur et l'autre récepteur.
 On considère un premier cas où le milieu est seulement composé d'où, puis un second cas où on ajoute une plaque d'aluminium entre les deux dispositifs piézoélectriques.
 On peut donc visualiser la propagation complexe de l'onde acoustique dans l'eau, puis dans l'eau et l'aluminium (ce que l'on ne peut pas faire pendant le TP ! Car on a seulement accès au signal reçu)
@@ -22,12 +25,17 @@ On utilise des conditions aux limites absorbantes de type PML pour éviter les r
 L'utilisation d'un filtre passe-bas est primordiale pour lisser les artefacts de dispersion numérique, ce qui clarifie la visualisation de l'onde."""
 
 start = time.time()
-
-# Paramètres physiques
+show_energy = False #True si on veut montrer le profil énergetique, False sinon
 has_aluminium = True # True si on veut ajouter la plaque d'alu, False sinon
-aluminium_shape = 2 # 1 pour une plaque rectangulaire, 2 pour un cercle
+# Paramètres physiques
+
+aluminium_shape = 5 # 1 pour une plaque rectangulaire, 2 pour un cercle, 3 pour hexagone, 4 pour triangle équilatéral
 Lx, Ly = 0.08, 0.08 # Dimensions du domaine (m)
 piezo_diameter = 0.025 # Diamètre des dispositifs piézoélectriques (m)
+f_source = 2e6 # Fréquence de la source (Hz), 2MHz -> Ultrasons.
+tmax = 2e-4 # Durée de la simulation (s)
+c_w = 1500 # Vitesse du son dans l'eau (m/s) (ou dans un fluide en général)
+c_a = 6000 # Vitesse du son (longitudinal) dans l'aluminium (m/s) (ou dans un solide en général)
 
 if aluminium_shape == 1:
     alu_distance = 0.03 # Distance entre l'émetteur et la plaque d'aluminium (m)
@@ -35,23 +43,41 @@ if aluminium_shape == 1:
     alu_width = 0.067 # Largeur de la plaque d'aluminium (m)
 
 if aluminium_shape == 2:
-    alu_radius = 0.039 # Rayon de la plaque d'aluminium (m) (si aluminium_shape == 2)
+    alu_radius = 0.02 # Rayon du cercle
     alu_center = (Lx/2, Ly / 2) # Centre du cercle d'aluminium (m)
 
+if aluminium_shape == 3: #Hexagone
+    alu_radius = 0.02 
+    alu_center = (Lx/2, Ly / 2)
 
-f_source = 2e6 # Fréquence de la source (Hz), 2MHz -> Ultrasons.
-tmax = 3e-4 # Durée de la simulation (s)
+if aluminium_shape == 4: #Triangle équilatéral
+    tri_height = 0.04
+    tri_base = 0.04
+    cx, cy = Lx/2, Ly/2
 
-c_w = 1500 # Vitesse du son dans l'eau (m/s) (ou dans un fluide en général)
-c_a = 6000 # Vitesse du son (longitudinal) dans l'aluminium (m/s) (on néglige le cisaillement) (ou dans un solide en général)
+if aluminium_shape == 5: #Plaque d'alu avec une fente centrale
+    slit_width = 0.003
+    slit_sep = 0.012
+    alu_distance = 0.03
+    alu_thickness = 0.004
+    alu_width = 0.067
 
+if aluminium_shape == 6: #Plaque d'alu avec des fentes d'Young
+    slit_width = 0.003
+    slit_sep = 0.012
+    alu_distance = 0.03
+    alu_thickness = 0.004
+    alu_width = 0.067
+
+rho_w = 1000
+rho_a = 2700
 c_max = c_w if not has_aluminium else c_a
 
-nx, ny = int(256*(Lx/Ly)), 256
+nx, ny = int(128*(Lx/Ly)), 128
 dx = Lx / nx
 dy = Ly / ny
 dt = 0.8 * dx / (c_max * np.sqrt(2))  # CFL
-alpha = 0.006 * dt / dx**2 
+alpha = 0.007 * dt / dx**2 
 
 #Optimisation : on précalcule les coefficients pour éviter de les recalculer à chaque itération
 inv_dx2 = 1.0 / dx**2
@@ -63,32 +89,93 @@ piezo_bottom = ny // 2 - piezo_width // 2
 
 nframes = int(tmax / dt)
 
+# Initialisation des tableaux
 all_p = np.zeros((nframes, nx, ny), dtype=np.float32)
 all_signal = np.zeros(nframes, dtype=np.float32)
 all_time = np.zeros(nframes, dtype=np.float32)
-# Initialisation des tableaux
 p = np.zeros((nx, ny), dtype=np.float32)
 p_prev = np.zeros((nx, ny), dtype=np.float32)
 p_next = np.zeros((nx, ny), dtype=np.float32)
-celerity_matrix = np.full((nx, ny), c_w**2, dtype=np.float32)  # Par défaut, on est uniquement dans l'eau...
 
+# Matrice de matériau, 1 si alu, 0 sinon
+material_matrix = np.zeros((nx, ny), dtype=np.float32)
 
-#Si on ajoute l'aluminium, on modifie la matrice de célérité aux points où l'aluminium est présent.
 if has_aluminium:
-
-    if aluminium_shape == 1:
+    if aluminium_shape == 1:  # Rectangle
         alu_x0 = int(alu_distance / Lx * nx)
         alu_y0 = int((Ly - alu_width) / 2 / Ly * ny)
         alu_x1 = alu_x0 + int(alu_thickness / Lx * nx)
         alu_y1 = alu_y0 + int(alu_width / Ly * ny)
-        celerity_matrix[alu_x0:alu_x1, alu_y0:alu_y1] = c_a**2
-    if aluminium_shape == 2:
-        alu_radius_pixels = int(alu_radius / Lx * nx)
+        material_matrix[alu_x0:alu_x1, alu_y0:alu_y1] = 1
+
+    if aluminium_shape == 2:  # Cercle
+        cx = alu_center[0] * nx / Lx
+        cy = alu_center[1] * ny / Ly
+        r = alu_radius * nx / Lx
         for i in range(nx):
             for j in range(ny):
-                if (i - alu_center[0] * nx / Lx)**2 + (j - alu_center[1] * ny / Ly)**2 <= alu_radius_pixels**2:
-                    celerity_matrix[i, j] = c_a**2
+                if np.sqrt((i - cx) ** 2 + (j - cy) ** 2) <= r:
+                    material_matrix[i, j] = 1
 
+    if aluminium_shape == 3:  # Hexagone
+        cx = alu_center[0] * nx / Lx
+        cy = alu_center[1] * ny / Ly
+        r = alu_radius * nx / Lx
+        for i in range(nx):
+            for j in range(ny):
+                x = i - cx
+                y = j - cy
+                x_abs = abs(x)
+                y_abs = abs(y)
+                if y_abs <= np.sqrt(3) * r / 2 and x_abs <= r and np.sqrt(3) * x_abs + y_abs <= np.sqrt(3) * r:
+                    material_matrix[i, j] = 1
+
+    if aluminium_shape == 4:  # Triangle équilatéral
+        v1 = (cx - tri_base/2, cy - tri_height/2)
+        v2 = (cx + tri_base/2, cy - tri_height/2)
+        v3 = (cx, cy + tri_height/2)
+        triangle_vertices = [v1, v2, v3]
+        pts = [
+            (int(v1[0] / Lx * nx), int(v1[1] / Ly * ny)),
+            (int(v2[0] / Lx * nx), int(v2[1] / Ly * ny)),
+            (int(v3[0] / Lx * nx), int(v3[1] / Ly * ny)),
+        ]
+        X, Y = np.meshgrid(np.arange(nx), np.arange(ny), indexing='ij')
+        points = np.vstack((X.flatten(), Y.flatten())).T
+        path = Path(pts)
+        mask = path.contains_points(points).reshape((nx, ny))
+        material_matrix[mask] = 1
+
+    if aluminium_shape == 5:  # Plaque rectangulaire avec une fente centrale
+        alu_x0 = int(alu_distance / Lx * nx)
+        alu_y0 = int((Ly - alu_width) / 2 / Ly * ny)
+        alu_x1 = alu_x0 + int(alu_thickness / Lx * nx)
+        alu_y1 = alu_y0 + int(alu_width / Ly * ny)
+        slit_y0 = int((Ly / 2 - slit_width / 2) / Ly * ny)
+        slit_y1 = int((Ly / 2 + slit_width / 2) / Ly * ny)
+        material_matrix[alu_x0:alu_x1, alu_y0:alu_y1] = 1
+        material_matrix[alu_x0:alu_x1, slit_y0:slit_y1] = 0
+
+    if aluminium_shape == 6: #Plaque avec fentes de Young
+        
+        alu_x0 = int(alu_distance / Lx * nx)
+        alu_y0 = int((Ly - alu_width) / 2 / Ly * ny)
+        alu_x1 = alu_x0 + int(alu_thickness / Lx * nx)
+        alu_y1 = alu_y0 + int(alu_width / Ly * ny)
+        material_matrix[alu_x0:alu_x1, alu_y0:alu_y1] = 1
+
+        center1 = Ly / 2 - slit_sep / 2
+        center2 = Ly / 2 + slit_sep / 2
+        slit1_y0 = int((center1 - slit_width / 2) / Ly * ny)
+        slit1_y1 = int((center1 + slit_width / 2) / Ly * ny)
+        slit2_y0 = int((center2 - slit_width / 2) / Ly * ny)
+        slit2_y1 = int((center2 + slit_width / 2) / Ly * ny)
+
+        material_matrix[alu_x0:alu_x1, slit1_y0:slit1_y1] = 0
+        material_matrix[alu_x0:alu_x1, slit2_y0:slit2_y1] = 0
+
+celerity_matrix = np.where(material_matrix == 1, c_a, c_w).astype(np.float32)
+rho_matrix = np.where(material_matrix == 1, rho_a, rho_w).astype(np.float32)
 
 has_low_pass_filter = True # True si on veut ajouter un filtre passe-bas, False sinon
 has_pml = True # True si on veut ajouter des conditions aux limites absorbantes de type PML, False sinon
@@ -121,35 +208,31 @@ if has_pml:
 
     sigma[:, j] = np.maximum(sigma[:, j], sigma_bot[None, :])
     sigma[:, j_top] = np.maximum(sigma[:, j_top], sigma_top[None, :])
+
 if aluminium_shape == 1:
     assert alu_distance + alu_thickness < Lx, "La plaque d'aluminium doit être entièrement dans le domaine !"
-else :
+elif aluminium_shape == 2 or aluminium_shape == 3 :
     assert alu_radius < Lx / 2, "Le rayon de la plaque d'aluminium doit être inférieur à la moitié de la largeur du domaine !"
 
 assert piezo_diameter < Ly, "Le diamètre des dispositifs piézoélectriques doit être inférieur à la hauteur du domaine !"
 
-# fig, axs = plt.subplots(1, 2, figsize=(12, 6))
+cmap = ListedColormap(['#1f77b4', '#b0b0b0'])
 
-# # Matrice de célérité
-# axs[0].imshow(celerity_matrix.T, cmap='viridis', extent=[0, Lx, 0, Ly], origin='lower', aspect='auto')
-# axs[0].set_title('Matrice de célérité initiale (Eau)')
-# axs[0].set_xlabel('x')
-# axs[0].set_ylabel('y (m)')
-# plt.colorbar(axs[0].imshow(celerity_matrix.T, cmap='viridis', extent=[0, Lx, 0, Ly], origin='lower', aspect='auto'), ax=axs[0], label='Célérité (m/s)')
-
-# # Matrice d'absorption
-# axs[1].imshow(sigma.T, cmap='viridis', extent=[0, Lx, 0, Ly], origin='lower', aspect='auto')
-# axs[1].set_title('Matrice d\'absorption (Sigma)')
-# axs[1].set_xlabel('x (m)')
-# plt.colorbar(axs[1].imshow(sigma.T, cmap='viridis', extent=[0, Lx, 0, Ly], origin='lower', aspect='auto'), ax=axs[1], label='Absorption (1/s)')
-
-# plt.tight_layout()
-# plt.show()
+plt.figure(figsize=(6, 5))
+plt.imshow(material_matrix.T, cmap=cmap, extent=[0, Lx, 0, Ly], origin='lower', aspect='auto', vmin=0, vmax=1)
+plt.title('Matrice de matériau (0: Eau, 1: Aluminium)')
+plt.xlabel('x (m)')
+plt.ylabel('y (m)')
+cbar = plt.colorbar(ticks=[0, 1], label='Matériau')
+cbar.ax.set_yticklabels(['Eau', 'Aluminium'])
+plt.tight_layout()
+plt.show()
 
 @njit(fastmath=True, cache=True)
-def compute_wave_propagation(nframes, nx, ny, p, p_prev, p_next, celerity_matrix, sigma, alpha, dt, dt2, inv_dx2, inv_dy2, piezo_bottom, piezo_width, f_source):
+def compute_wave_propagation(nframes, nx, ny, p, p_prev, p_next, celerity_matrix, rho_matrix, sigma, alpha, dt, dt2, inv_dx2, inv_dy2, piezo_bottom, piezo_width, f_source):
     all_p = np.zeros((nframes, nx, ny), dtype=np.float32)
     all_signal = np.zeros(nframes, dtype=np.float32)
+    all_energy = np.zeros((nframes, nx, ny), dtype=np.float32)
     all_time = np.zeros(nframes, dtype=np.float32)
     t = 0.0
     for frame in range(nframes):
@@ -168,6 +251,10 @@ def compute_wave_propagation(nframes, nx, ny, p, p_prev, p_next, celerity_matrix
         # Différences finies et PML avec Laplacien d'ordre 4 à l'intérieur, ordre 2 près des bords
         for i in range(1, nx-1):
             for j in range(1, ny-1):
+
+                c = celerity_matrix[i, j]
+                rho = rho_matrix[i, j]
+
                 if i < 2 or i > nx-3 or j < 2 or j > ny-3:
                     laplacian = (
                     (p[i+1, j] + p[i-1, j] - 2 * p[i, j]) * inv_dx2 +
@@ -181,14 +268,22 @@ def compute_wave_propagation(nframes, nx, ny, p, p_prev, p_next, celerity_matrix
                 if has_pml:
                     p_next[i, j] = (
                         (2 * p[i, j] - p_prev[i, j] +
-                         (celerity_matrix[i, j] * dt2) * laplacian) *
+                         (c**2 * dt2) * laplacian) *
                         np.exp(-sigma[i, j] * dt)
                     )
                 else:
                     p_next[i, j] = (
                         (2 * p[i, j] - p_prev[i, j] +
-                        (celerity_matrix[i, j] * dt2) * laplacian)
+                        (c**2 * dt2) * laplacian)
                     )
+
+                dpdt = (p[i, j] - p_prev[i, j]) / dt
+                v = dpdt / (rho * c)
+
+                ekin = 0.5 * rho * v**2
+                epot = 0.5 * p[i, j]**2 / (rho * c**2)
+                all_energy[frame, i, j] = ekin + epot
+
         if has_low_pass_filter:
             for i in range(1, nx - 1):
                 for j in range(1, ny - 1):
@@ -209,21 +304,27 @@ def compute_wave_propagation(nframes, nx, ny, p, p_prev, p_next, celerity_matrix
         p_next = tmp
         t += dt
 
-    return all_p, all_signal, all_time
+    return all_p, all_signal, all_energy, all_time
 
 print("Init:", time.time() - start)
 
-all_p, all_signal, all_time = compute_wave_propagation(
-    nframes, nx, ny, p, p_prev, p_next, celerity_matrix, sigma, alpha, dt, dt2, inv_dx2, inv_dy2,
+all_p, all_signal, all_energy, all_time = compute_wave_propagation(
+    nframes, nx, ny, p, p_prev, p_next, celerity_matrix, rho_matrix, sigma, alpha, dt, dt2, inv_dx2, inv_dy2,
     piezo_bottom, piezo_width, f_source
 )
 
-all_signal = all_signal / np.max(np.abs(all_signal))  # Normalisation du signal
+if show_energy :
+    kappa = 0.03 #Lissage en temps de l'énergie
+    for frame in range(1, nframes):
+        all_energy[frame] = (1-kappa) * all_energy[frame-1] + kappa * all_energy[frame]
+if np.max(np.abs(all_signal)) != 0:
+    all_signal = all_signal / np.max(np.abs(all_signal))  # Normalisation du signal
 print("Simulation complète:", time.time() - start)
-fig = plt.figure(figsize=(8, 8))
-gs = fig.add_gridspec(2, 1, height_ratios=[5, 1], width_ratios=[1], hspace=0.2, top=0.92, bottom=0.08, left=0.15, right=0.98)
 
-ax1 = fig.add_subplot(gs[0])
+#Figure principale : pression acoustique et signal reçu
+fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(10, 8), gridspec_kw={'height_ratios': [5, 1]})
+plt.subplots_adjust(hspace=0.35, top=0.95, bottom=0.08, left=0.08, right=0.98)
+
 im = ax1.imshow(all_p[0].T, cmap='magma', extent=[0, nx*dx, 0, ny*dy], vmin=-1, vmax=1, origin='lower', aspect='auto')
 plt.colorbar(im, ax=ax1, label='Pression acoustique (Pa)')
 ax1.set_xlabel('x (m)')
@@ -231,42 +332,65 @@ ax1.set_ylabel('y (m)')
 ax1.set_title('Propagation d\'ondes acoustiques avec PML')
 
 if has_aluminium:
+
+    alu_patch = None
+    slit_patches = []
+
     if aluminium_shape == 1:
         alu_patch = plt.Rectangle((alu_x0*dx, alu_y0*dy), alu_thickness, alu_width, fill=False, color='black', label='Plaque d\'Aluminium')
     if aluminium_shape == 2:
         alu_patch = plt.Circle((alu_center[0], alu_center[1]), alu_radius, fill=False, color='black', label='Boule d\'Aluminium')
-    ax1.add_patch(alu_patch)
-    
+    if aluminium_shape == 3:
+        alu_patch = RegularPolygon((alu_center[0], alu_center[1]), numVertices=6, radius=alu_radius, orientation=np.pi/6, fill=False, color='black', label='Hexagone d\'Aluminium')
+    if aluminium_shape == 4:
+        alu_patch = Polygon(triangle_vertices, closed=True, fill=False, color='black', label="Triangle d'Aluminium")
+    if aluminium_shape == 5:
+        alu_patch = plt.Rectangle((alu_x0*dx, alu_y0*dy), alu_thickness, alu_width, fill=False, color='black', label='Plaque fendue')
+        slit_patch = plt.Rectangle(
+            (alu_x0*dx, Ly/2 - slit_width/2), alu_thickness, slit_width, fill=False, color='black', linestyle='dashed')
+        slit_patches.append(slit_patch)
+
+    if aluminium_shape == 6:
+        alu_patch = plt.Rectangle((alu_x0*dx, alu_y0*dy), alu_thickness, alu_width, fill=False, color='black', label='Plaque double fente')
+        slit1_patch = plt.Rectangle((alu_x0*dx, center1 - slit_width/2), alu_thickness, slit_width, fill=False, color='black', linestyle='dashed')
+        slit2_patch = plt.Rectangle((alu_x0*dx, center2 - slit_width/2), alu_thickness, slit_width, fill=False, color='black', linestyle='dashed')
+        slit_patches.extend([slit1_patch, slit2_patch])
+
+    if alu_patch is not None:
+        ax1.add_patch(alu_patch)
+    for sp in slit_patches:
+        ax1.add_patch(sp)
+
+
 emitter = plt.Line2D([0, 0], [piezo_bottom*dy, (piezo_bottom + piezo_width)*dy], color="#FFDD6D", linewidth=6, label='Émetteur')
 receiver = plt.Line2D([nx*dx, nx*dx], [piezo_bottom*dy, (piezo_bottom + piezo_width)*dy], color="#3E177E", linewidth=6, label='Récepteur')
 ax1.add_line(emitter)
 ax1.add_line(receiver)
 ax1.legend(loc='upper right')
 
-ax2 = fig.add_subplot(gs[1])
+# Plot signal reçu
 ax2.set_xlim(0, tmax*1e6)
-
 ax2.set_ylim(1.2*np.min(all_signal), 1.2*np.max(all_signal))
 ax2.set_xlabel('Temps (µs)')
 ax2.set_ylabel('Signal reçu (normalisé)')
 ax2.grid(True)
-
 time_points = np.linspace(0, tmax, nframes) * 1e6
 line, = ax2.plot([], [], color='purple', lw=2)
 
 def init():
     line.set_data([], [])
+    im.set_data(all_p[0].T)
     return im, line
 
 def update(frame):
-    data = all_p[frame].T
-    vmax = np.max(np.abs(data))
-    if vmax == 0:
-        vmax = 1e-12
-    im.set_data(data / vmax)
-    im.set_clim(-1, 1) 
+    p_data = all_p[frame].T
+    vmax_p = np.max(np.abs(p_data))
+    if vmax_p == 0:
+        vmax_p = 1e-12
+    im.set_data(p_data / vmax_p)
+    im.set_clim(-1, 1)
     line.set_data(time_points[:frame+1], all_signal[:frame+1])
-    ax1.set_title(f'Propagation d\'ondes acoustiques avec PML\nTemps : {all_time[frame]*1e6:.2f} µs')  # Affichage du temps
+    ax1.set_title(f'Propagation d\'ondes acoustiques avec PML\nTemps : {all_time[frame]*1e6:.2f} µs')
     return im, line
 
 frames_step = 10
@@ -275,7 +399,30 @@ anim = FuncAnimation(fig, update, frames=frames_to_show, init_func=init, interva
 
 plt.show()
 plt.close(fig)
-# writer = FFMpegWriter(fps=int(len(frames_to_show)/20), bitrate=1800)
+
+if show_energy:
+    fig_energy, ax_energy = plt.subplots(figsize=(7, 6))
+    im_energy = ax_energy.imshow(all_energy[0].T, cmap='inferno', extent=[0, nx*dx, 0, ny*dy], origin='lower', aspect='auto', vmax=1)
+    plt.colorbar(im_energy, ax=ax_energy, label='Énergie (J)')
+    ax_energy.set_xlabel('x (m)')
+    ax_energy.set_ylabel('y (m)')
+    ax_energy.set_title('Distribution de l\'énergie')
+
+    def update_energy(frame):
+        energy_data = all_energy[frame].T
+        vmax_e = np.max(np.abs(energy_data))
+        if vmax_e == 0:
+            vmax_e = 1e-12
+        im_energy.set_data(energy_data / vmax_e)
+        im_energy.set_clim(0, 1)
+        ax_energy.set_title(f'Distribution de l\'énergie\nTemps : {all_time[frame]*1e6:.2f} µs')
+        return im_energy,
+
+    anim_energy = FuncAnimation(fig_energy, update_energy, frames=frames_to_show, interval=50, blit=False, repeat=False)
+    plt.show()
+    plt.close(fig_energy)
+
+# writer = FFMpegWriter(fps=int(len(frames_to_show)/30), bitrate=1800)
 # if has_aluminium:
 #     anim.save('onde_acoustique_eau_alu_parallel.mp4', writer=writer, dpi=100)
 # else:
