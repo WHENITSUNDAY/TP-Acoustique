@@ -3,17 +3,30 @@ import matplotlib.pyplot as plt
 from matplotlib.path import Path
 from matplotlib.patches import Polygon, RegularPolygon
 
-def create_rectangle(material_matrix, nx, ny, Lx, Ly, distance, width, thickness, material=1):
+def rotate_point(x, y, cx, cy, i):
+    i = np.deg2rad(i)
+    dx, dy = x - cx, y - cy
+    cos_a, sin_a = np.cos(i), np.sin(i)
+    return cx + dx * cos_a - dy * sin_a, cy + dx * sin_a + dy * cos_a
 
-    dx, dy = Lx/nx, Ly/ny
+def create_rectangle(material_matrix, nx, ny, Lx, Ly, distance, width, thickness, i=0, material=1):
+    cx = distance + thickness / 2
+    cy = Ly / 2
 
-    x0 = int(distance / Lx * nx)
-    y0 = int((Ly - width) / 2 / Ly * ny)
-    x1 = x0 + int(thickness / Lx * nx)
-    y1 = y0 + int(width / Ly * ny)
-    material_matrix[x0:x1, y0:y1] = material
+    x0 = distance
+    x1 = distance + thickness
+    y0 = (Ly - width) / 2
+    y1 = (Ly + width) / 2
 
-    patch = plt.Rectangle((x0*dx, y0*dy), thickness, width, fill=False, color='black', label='Plaque d\'Aluminium')
+    corners = [(x0, y0), (x1, y0), (x1, y1), (x0, y1)]
+    corners = [rotate_point(x, y, cx, cy, i) for x, y in corners]
+    X, Y = np.meshgrid(np.linspace(0, Lx, nx), np.linspace(0, Ly, ny), indexing='ij')
+    points = np.vstack((X.flatten(), Y.flatten())).T
+    path = Path(corners)
+    mask = path.contains_points(points).reshape((nx, ny))
+    material_matrix[mask] = material
+
+    patch = Polygon(corners, closed=True, fill=False, color='black', label='Plaque d\'Aluminium')
 
     return material_matrix, patch
 
@@ -51,12 +64,16 @@ def create_hexagon(material_matrix, nx, ny, Lx, Ly, center, radius, material=1):
 
     return material_matrix, patch
 
-def create_triangle(material_matrix, nx, ny, Lx, Ly, center, base, height, material=1):
+def create_triangle(material_matrix, nx, ny, Lx, Ly, center, base, height, i, material=1):
 
     v1 = (center[0] - base/2, center[1] - height/2)
     v2 = (center[0] + base/2, center[1] - height/2)
     v3 = (center[0], center[1] + height/2)
     
+    v1 = rotate_point(*v1, *center, i)
+    v2 = rotate_point(*v2, *center, i)
+    v3 = rotate_point(*v3, *center, i)
+
     pts = [
         (int(v1[0] / Lx * nx), int(v1[1] / Ly * ny)),
         (int(v2[0] / Lx * nx), int(v2[1] / Ly * ny)),

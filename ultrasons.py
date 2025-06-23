@@ -29,7 +29,7 @@ show_energy = True #True si on veut montrer le profil énergetique, False sinon
 has_aluminium = True # True si on veut ajouter la plaque d'alu, False sinon
 # Paramètres physiques
 
-aluminium_shape = 6 # 1 pour une plaque rectangulaire, 2 pour un cercle, 3 pour hexagone, 4 pour triangle équilatéral, 5 fente classique, 6 fentes de Young
+aluminium_shape = 1 # 1 pour une plaque rectangulaire, 2 pour un cercle, 3 pour hexagone, 4 pour triangle équilatéral, 5 fente classique, 6 fentes de Young
 Lx, Ly = 0.08, 0.08 # Dimensions du domaine (m)
 piezo_diameter = 0.025 # Diamètre des dispositifs piézoélectriques (m)
 f_source = 2e6 # Fréquence de la source (Hz), 2MHz -> Ultrasons.
@@ -60,10 +60,10 @@ patches = []
 if has_aluminium:
     if aluminium_shape == 1:  # Rectangle
         alu_distance = 0.03  # Distance entre l'émetteur et la plaque d'aluminium (m)
-        alu_thickness = 0.0083  # Épaisseur de la plaque d'aluminium (m)
+        alu_thickness = 0.008  # Épaisseur de la plaque d'aluminium (m)
         alu_width = 0.067  # Largeur de la plaque d'aluminium (m)
-        material_matrix, patch = create_rectangle(material_matrix, nx, ny, Lx, Ly, alu_distance, alu_width, alu_thickness)
-
+        i = 0
+        material_matrix, patch = create_rectangle(material_matrix, nx, ny, Lx, Ly, alu_distance, alu_width, alu_thickness, i)
     elif aluminium_shape == 2:  # Cercle
         alu_radius = 0.02  # Rayon du cercle
         alu_center = (Lx/2, Ly/2)  # Centre du cercle d'aluminium (m)
@@ -78,10 +78,11 @@ if has_aluminium:
         tri_height = 0.04
         tri_base = 0.04
         alu_center = (Lx/2, Ly/2)
-        material_matrix, patch = create_triangle(material_matrix, nx, ny, Lx, Ly, alu_center, tri_base, tri_height)
+        i = 0
+        material_matrix, patch = create_triangle(material_matrix, nx, ny, Lx, Ly, alu_center, tri_base, tri_height, i)
 
     elif aluminium_shape == 5:  # Plaque avec fente centrale
-        slit_width = 0.003
+        slit_width = 0.001
         alu_distance = 0.03
         alu_thickness = 0.004
         alu_width = 0.067
@@ -94,7 +95,6 @@ if has_aluminium:
         alu_thickness = 0.004
         alu_width = 0.067
         material_matrix, patches = create_double_slit(material_matrix, nx, ny, Lx, Ly, alu_distance, alu_width, alu_thickness, slit_width, slit_sep)
-
 
 celerity_matrix = np.where(material_matrix == 1, c_a, c_w).astype(np.float32)
 rho_matrix = np.where(material_matrix == 1, rho_a, rho_w).astype(np.float32)        
