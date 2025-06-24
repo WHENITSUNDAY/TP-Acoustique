@@ -7,13 +7,23 @@ En parallèle, on modélise notamment le signal électrique reçu par le récept
 ## Résultats de la simulation
 
 https://github.com/user-attachments/assets/7b3d3b14-2d0d-42bd-be3b-b9bfb1e51743
+
 https://github.com/user-attachments/assets/58315cee-c223-499c-9b55-72c4e3a1c863
+
 https://github.com/user-attachments/assets/db6fa42a-6e95-4e4c-9f10-aaef0994c77e
+
 https://github.com/user-attachments/assets/1bfdf478-adbd-49a1-b2da-f2398f623af8
+
 https://github.com/user-attachments/assets/67239315-9468-4e79-bff0-0a8a883a9212
+
 https://github.com/user-attachments/assets/e9619ff7-952d-4a44-8252-2326588e558e
+
 https://github.com/user-attachments/assets/27761bc9-ebac-4089-b342-09f0fe2466de
+
 https://github.com/user-attachments/assets/e620a504-eefc-41a2-9da2-2fcaeda79fd0
+
 https://github.com/user-attachments/assets/5f31b3e2-d877-4974-8fcd-95650051503a
+
 https://github.com/user-attachments/assets/775a7012-e713-4846-be64-ada08e51bb47
+
 https://github.com/user-attachments/assets/35e15355-a538-4e4f-ae63-857df0699aab
